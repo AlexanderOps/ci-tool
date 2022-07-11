@@ -1,0 +1,77 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Chart.Name }}-kubecfg-tmpl
+data:
+  kubecfg: |
+    clusters:
+    - cluster:
+        certificate-authority: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        server: {{ .Values.server }}
+      name: default-cluster
+    contexts:
+    - context:
+        cluster: default-cluster
+        user: default-user
+      name: default-context
+    current-context: default-context
+    kind: Config
+    preferences: {}
+    users:
+    - name: default-user
+      user:
+        token:
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Chart.Name }}-pipeline
+data:
+  create-task.sh: |
+    #!/usr/bin/env bash
+    #
+    input_url="{{ .Values.input_parameters.file_url }}"
+    username="{{ .Values.input_parameters.username }}"
+    password="{{ .Values.input_parameters.password }}"
+    url_no_protocol=''
+    userpass=''
+    protocol=''
+    rest_uri=''
+    result_url=''
+    ci_file="_task_${RANDOM}_${RANDOM}.yaml"
+    #
+    if [[ -z "$input_url" ]]; then
+        echo "Invalid URI: File URL field can't be empty/"
+        exit 1
+    fi
+    # get protocol
+    protocol="$(sed -n -e 's,^\(.*://\).*,\1,gp' <<< "$input_url")"
+    # get url without proto
+    url_no_protocol="${input_url/${protocol}/}"
+    userpass=$(cut -s -d@ -f1 <<< "${url_no_protocol}")
+    rest_uri="${url_no_protocol/${userpass}@/}"
+    if [[ -n "$userpass" ]] && [[ -n "$username" ]]; then
+        echo "Invalid URI: Username should be defined in URL input string or Username field."
+        exit 1
+    fi
+    if [[ -n "$username" ]]; then
+        userpass="${username}"
+        if [[ -n "$password" ]]; then
+            userpass="${userpass}:${password}"
+        fi
+    fi
+    # Build result URL
+    if [[ -n $userpass ]]; then
+      result_url="${protocol}${userpass}@${rest_uri}"
+    else
+      result_url="${protocol}${rest_uri}"
+    fi
+    if [[ $(curl -s -S -w '%{http_code}' --max-time 10 --connect-timeout 5 --retry-delay 0 --retry 5 --retry-max-time 60 -o "$ci_file" "$result_url") -ne 200 ]]
+    then
+      echo "Download of $result_url was failed."
+      exit 1
+    fi
+    echo "$rest_uri was downloaded to $ci_file."
+    kubectl create configmap {{ .Release.Namespace }}-tasks --from-file="$ci_file"
+    kubectl apply -f "$ci_file"

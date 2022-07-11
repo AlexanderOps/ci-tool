@@ -1,0 +1,13 @@
+image:
+  registry: registry.system/product
+  repository: "ci-tool"
+  tag: "3.7.1"
+  pullPolicy: IfNotPresent
+
+server: https://10.3.0.1:443
+kubeConfigPath: /workspace/.kube/kubeconfig.cfg
+
+input_parameters:
+  file_url: https://raw.githubusercontent.com/vdudka/ci-test/main/ci-file
+  username: ''
+  password: ''

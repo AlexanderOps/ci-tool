@@ -1,0 +1,50 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Chart.Name }}
+  labels:
+    app: {{ .Chart.Name }}
+    chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+spec:
+  backoffLimit: 1
+  parallelism: 1
+  completions: 1
+  template:
+    spec:
+      dnsPolicy: ClusterFirst
+      serviceAccountName: serviceaccount-{{ .Chart.Name }}
+      restartPolicy: Never
+      activeDeadlineSeconds: 300
+      containers:
+      - name: {{ .Chart.Name }}-init
+#        image: registry.system/product/{{ .Chart.Name }}:{{ .Values.image.tag }}
+        image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: IfNotPresent
+        args:
+        - /bin/bash
+        - -c
+        - mkdir -p /workspace/.kube; mkdir -p /tmp/{kubecfg,create-tasks}; head -c-1 /tmp/kubecfg/kubecfg-tmpl > {{ .Values.kubeConfigPath }}; echo -n " " >> {{ .Values.kubeConfigPath }}; cat /var/run/secrets/kubernetes.io/serviceaccount/token >> {{ .Values.kubeConfigPath }}; bash /tmp/create-tasks/create_task.sh
+        env:
+        - name: KUBE_HOST
+          value: https://10.3.0.1:443
+        - name: KUBECONFIG
+          value: {{ .Values.kubeConfigPath }}
+        volumeMounts:
+        - mountPath: /tmp/kubecfg
+          name: kubecfg
+        - mountPath: /tmp/create-tasks
+          name: create-tasks
+        workingDir: /workspace
+      volumes:
+      - name: kubecfg
+        configMap:
+          name: {{ .Chart.Name }}-kubecfg-tmpl
+          items:
+          - key: kubecfg
+            path: kubecfg-tmpl
+      - name: create-tasks
+        configMap:
+          name: {{ .Chart.Name }}-pipeline
+          items:
+          - key: create-task.sh
+            path: create_task.sh
